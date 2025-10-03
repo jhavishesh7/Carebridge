@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { Users, Car, DollarSign, Activity, TrendingUp, Calendar } from 'lucide-react';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
@@ -50,17 +50,17 @@ export function AdminDashboard() {
 
       if (profiles && appointments && earnings) {
         const totalUsers = profiles.length;
-        const totalPatients = profiles.filter(p => p.role === 'patient').length;
-        const totalRiders = profiles.filter(p => p.role === 'rider').length;
+  const totalPatients = profiles.filter((p: any) => p.role === 'patient').length;
+  const totalRiders = profiles.filter((p: any) => p.role === 'rider').length;
         
         const totalRides = appointments.length;
-        const activeRides = appointments.filter(a => 
+        const activeRides = appointments.filter((a: any) => 
           a.status === 'accepted' || a.status === 'in_progress'
         ).length;
-        const completedRides = appointments.filter(a => a.status === 'completed').length;
-        const pendingRides = appointments.filter(a => a.status === 'pending').length;
+        const completedRides = appointments.filter((a: any) => a.status === 'completed').length;
+        const pendingRides = appointments.filter((a: any) => a.status === 'pending').length;
         
-        const totalEarnings = earnings.reduce((sum, e) => sum + e.amount, 0);
+  const totalEarnings = earnings.reduce((sum: number, e: any) => sum + e.amount, 0);
 
         setStats({
           totalUsers,

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { UserPlus, Eye, EyeOff, User, Car, Shield } from 'lucide-react';
+import { UserPlus, Eye, EyeOff, User, Car } from 'lucide-react';
 
 interface SignupFormProps {
   onToggleForm: () => void;
 }
 
-type UserRole = 'patient' | 'rider' | 'admin';
+type UserRole = 'patient' | 'rider';
 
 export function SignupForm({ onToggleForm }: SignupFormProps) {
   const [step, setStep] = useState(1);
@@ -42,13 +42,6 @@ export function SignupForm({ onToggleForm }: SignupFormProps) {
       description: 'I want to help patients with healthcare transportation',
       icon: Car,
       color: 'bg-blue-100 text-blue-600 border-blue-200',
-    },
-    {
-      id: 'admin' as UserRole,
-      name: 'Administrator',
-      description: 'I manage the CareBridge platform',
-      icon: Shield,
-      color: 'bg-purple-100 text-purple-600 border-purple-200',
     },
   ];
 

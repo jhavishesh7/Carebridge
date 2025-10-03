@@ -33,6 +33,15 @@ export function AppointmentsPage() {
     }
   };
 
+  const markPatientCompleted = async (appointmentId: string) => {
+    // Resolve ride by appointment and mark patient completion
+    const { data: ride } = await supabase.from('rides').select('id').eq('appointment_id', appointmentId).maybeSingle();
+    if (ride?.id) {
+      await supabase.rpc('mark_patient_complete', { p_ride_id: ride.id });
+      await fetchAppointments();
+    }
+  };
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-6">
@@ -52,7 +61,15 @@ export function AppointmentsPage() {
                 <div className="text-sm text-gray-600">{appt.hospital_address}</div>
                 <div className="text-sm text-gray-600">{format(new Date(appt.appointment_date), 'PPP p')}</div>
               </div>
-              <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-800 capitalize">{appt.status.replace('_', ' ')}</span>
+              <div className="flex items-center space-x-3">
+                <span className="text-xs px-3 py-1 rounded-full bg-gray-100 text-gray-800 capitalize">{appt.status.replace('_', ' ')}</span>
+                {appt.status === 'in_progress' && (
+                  <button onClick={() => markPatientCompleted(appt.id)} className="text-sm bg-green-600 text-white px-3 py-1 rounded">Mark Completed</button>
+                )}
+                {appt.status === 'completed' && (
+                  <a href={`/invoice/${appt.id}`} className="text-sm text-blue-600 hover:text-blue-700 font-semibold">View Invoice</a>
+                )}
+              </div>
             </div>
           ))}
         </div>

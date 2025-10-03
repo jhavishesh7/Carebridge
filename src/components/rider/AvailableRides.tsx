@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import type { Appointment } from '../../lib/database.types';
 import { useAuth } from '../../contexts/AuthContext';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
-import { MapPin, User, Car } from 'lucide-react';
+import { MapPin, Car } from 'lucide-react';
 import { format } from 'date-fns';
-import { computeFare, estimateFromAddresses } from '../../lib/fare';
+import { estimateFromAddresses } from '../../lib/fare';
 
 export function AvailableRides() {
   const { profile } = useAuth();
@@ -34,18 +34,19 @@ export function AvailableRides() {
 
   const accept = async (appt: Appointment) => {
     try {
-      let total: number | null = null;
       const est = await estimateFromAddresses(appt.pickup_location, appt.hospital_address);
-      if (est) {
-        const roundKm = est.distanceKm * 2;
-        const roundMin = est.durationMinutes * 2;
-        total = computeFare(roundKm, roundMin).total;
-      }
-      const { error } = await supabase
-        .from('appointments')
-        .update({ rider_id: profile?.id, status: 'accepted', total_cost: total, updated_at: new Date().toISOString() })
-        .eq('id', appt.id);
-      if (error) throw error;
+      if (!est || !profile?.id) throw new Error('Missing estimate or profile');
+      const roundKm = Math.round(est.distanceKm * 2 * 100) / 100;
+      const roundMin = Math.round(est.durationMinutes * 2);
+      // Call backend RPC to create ride and persist fare
+      const { error: rpcError } = await supabase.rpc('accept_ride_with_fare', {
+        p_appointment_id: appt.id,
+        p_rider_id: profile.id,
+        p_distance_km: roundKm,
+        p_duration_min: roundMin,
+        p_assistance_enhanced: false,
+      });
+      if (rpcError) throw rpcError;
       await load();
     } catch (e) {
       console.error('Accept failed', e);

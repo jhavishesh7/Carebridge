@@ -8,7 +8,7 @@ import {
   History,
   BarChart3,
   Users,
-  Settings,
+  User as UserIcon,
   Home,
   Plus,
   Clock,
@@ -34,22 +34,22 @@ export function Sidebar() {
           { icon: Plus, label: 'Book Appointment', href: '/book' },
           { icon: Calendar, label: 'My Appointments', href: '/appointments' },
           { icon: History, label: 'Ride History', href: '/rides' },
-          { icon: Settings, label: 'Settings', href: '/settings' },
+          { icon: UserIcon, label: 'Profile', href: '/profile' },
         ];
       case 'rider':
         return [
           { icon: Home, label: 'Dashboard', href: '/' },
-          { icon: Car, label: 'Available Rides', href: '/' },
-          { icon: Clock, label: 'Active Rides', href: '/' },
-          { icon: History, label: 'Ride History', href: '/' },
-          { icon: DollarSign, label: 'Earnings', href: '/' },
-          { icon: Settings, label: 'Settings', href: '/settings' },
+          { icon: Car, label: 'Available Rides', href: '/rider/available' },
+          { icon: Clock, label: 'Active Rides', href: '/rider/active' },
+          { icon: History, label: 'Ride History', href: '/rider/history' },
+          { icon: DollarSign, label: 'Earnings', href: '/rider/earnings' },
+          { icon: UserIcon, label: 'Profile', href: '/profile' },
         ];
       case 'admin':
         return [
           { icon: Home, label: 'Dashboard', href: '/' },
           { icon: Users, label: 'Users', href: '/admin/users' },
-          { icon: Settings, label: 'Settings', href: '/settings' },
+          { icon: UserIcon, label: 'Profile', href: '/profile' },
         ];
       default:
         return [];

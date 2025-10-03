@@ -1,5 +1,5 @@
 // project/src/components/common/InvoiceDisplay.tsx
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
 import type { Appointment, Ride, Profile } from '../../lib/database.types';
@@ -18,6 +18,7 @@ export function InvoiceDisplay() {
   const [invoice, setInvoice] = useState<InvoiceDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     async function fetchInvoice() {
@@ -198,6 +199,34 @@ export function InvoiceDisplay() {
           <div className="flex justify-between font-bold text-lg border-t pt-2 mt-2">
             <p className="text-gray-900">Total Fare:</p>
             <p className="text-gray-900">Rs. {appointment.total_cost?.toFixed(2) || '0.00'}</p>
+          </div>
+        </div>
+        <div className="mt-6 flex items-center justify-between">
+          {invoice.rider && (
+            <div className="text-sm text-gray-600">Rider View: <span className="font-semibold">{invoice.rider.full_name}</span></div>
+          )}
+          <div className="text-right">
+          <button
+            disabled={saving}
+            onClick={async () => {
+              try {
+                setSaving(true);
+                if (ride && ride.rider_id) {
+                  // upsert earning for rider
+                  const commission = Math.round(((appointment.total_cost || 0) * 0.1) * 100) / 100;
+                  const net = Math.round((((appointment.total_cost || 0) - commission)) * 100) / 100;
+                  await supabase.from('earnings').insert({ rider_id: ride.rider_id, ride_id: ride.id, amount: appointment.total_cost || 0, commission, net_amount: net });
+                  // notify rider of payment
+                  await supabase.rpc('create_notification', { p_user_id: ride.rider_id, p_title: 'Payment Received', p_message: `Payment of Rs. ${net.toFixed(2)} processed`, p_type: 'payment' });
+                }
+              } finally {
+                setSaving(false);
+              }
+            }}
+            className="bg-green-600 text-white px-5 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50"
+          >
+            {saving ? 'Processing...' : 'Payment Done'}
+          </button>
           </div>
         </div>
       </div>

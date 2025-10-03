@@ -73,6 +73,7 @@ export function BookAppointment() {
       }
       const roundKm = Math.round(est.distanceKm * 2 * 100) / 100;
       const roundMin = Math.round(est.durationMinutes * 2);
+      // For patients, we still prequote on the client; server will compute final on accept
       const fare = computeFare(roundKm, roundMin);
       setQuote({ distanceKm: roundKm, durationMin: roundMin, total: fare.total });
     } catch (e: any) {

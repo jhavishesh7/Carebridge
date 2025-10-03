@@ -8,7 +8,10 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.app.json"
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
+    "db:gen": "supabase gen types typescript --project-id $SUPABASE_PROJECT_ID --schema public > src/lib/database.types.ts",
+    "db:migrate": "supabase migration up --env local",
+    "db:reset": "supabase db reset --no-verify"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.58.0",

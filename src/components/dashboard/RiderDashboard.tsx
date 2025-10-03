@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Car, DollarSign, Clock, Star, MapPin, User } from 'lucide-react';
@@ -6,12 +6,17 @@ import type { Appointment, Earning } from '../../lib/database.types';
 import { format } from 'date-fns';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
 import { computeFare, estimateFromAddresses } from '../../lib/fare';
+// RideStatus is used only in PatientDashboard; avoid unused import here
+import { RideFlowModal } from '../common/RideFlowModal';
+import { ContactDrawer } from '../common/ContactDrawer';
+import { Snackbar } from '../ui/Snackbar';
 
 export function RiderDashboard() {
   const { profile } = useAuth();
+  const sb: any = supabase;
   const [availableRides, setAvailableRides] = useState<Appointment[]>([]);
   const [activeRides, setActiveRides] = useState<Appointment[]>([]);
-  const [earnings, setEarnings] = useState<Earning[]>([]);
+  const [_earnings, setEarnings] = useState<Earning[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     totalEarnings: 0,
@@ -19,11 +24,37 @@ export function RiderDashboard() {
     activeRides: 0,
     rating: 0,
   });
-  const [inProgressId, setInProgressId] = useState<string | null>(null);
+  const [_inProgressId, setInProgressId] = useState<string | null>(null);
   const [waitingMinutes, setWaitingMinutes] = useState<number>(0);
+  const [etaModal, setEtaModal] = useState<{ open: boolean; text: string; apptId: string | null }>({ open: false, text: '', apptId: null });
+  const [hospitalForm, setHospitalForm] = useState<{ open: boolean; apptId: string | null; notes: string }>({ open: false, apptId: null, notes: '' });
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [acceptingId, setAcceptingId] = useState<string | null>(null);
+  const [fareEstimates, setFareEstimates] = useState<Record<string, number>>({});
+  const [rideModal, setRideModal] = useState<{ open: boolean; apptId: string | null }>({ open: false, apptId: null });
+  const [contact, setContact] = useState<{ open: boolean; name?: string; phone?: string; address?: string }>({ open: false });
+  const [snackbar, setSnackbar] = useState<{ open: boolean; title?: string; message?: string; appointmentId?: string | null }>({ open: false });
 
   useEffect(() => {
     fetchData();
+  }, [profile?.id]);
+
+  // Subscribe to notifications for showing invoice toast
+  useEffect(() => {
+    if (!profile) return;
+    const channel = supabase
+      .channel('realtime:notifications-rider')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, (payload: { new: any }) => {
+        const rec = payload.new as any;
+        if (rec.type === 'invoice' && typeof rec.message === 'string') {
+          const m = rec.message as string;
+          const match = m.match(/appointment:([a-z0-9\-]+)/i);
+          const apptId = match ? match[1] : null;
+          setSnackbar({ open: true, title: rec.title, message: 'Invoice is available', appointmentId: apptId });
+        }
+      })
+      .subscribe();
+    return () => supabase.removeChannel(channel);
   }, [profile?.id]);
 
   const fetchData = async () => {
@@ -58,10 +89,30 @@ export function RiderDashboard() {
       .limit(5);
 
     if (error) throw error;
-    setAvailableRides(data || []);
+    const rows = data || [];
+    setAvailableRides(rows);
+    // compute estimated fares (round trip) for display
+    try {
+      const entries: Record<string, number> = {};
+      await Promise.all(
+        (rows as any[]).map(async (ride: any) => {
+          try {
+            const est = await estimateFromAddresses(ride.pickup_location, ride.hospital_address);
+            if (est) {
+              const km = Math.round(est.distanceKm * 2 * 100) / 100;
+              const mins = Math.round(est.durationMinutes * 2);
+              const f = computeFare(km, mins, { enhancedSupport: false });
+              entries[ride.id] = f.total;
+            }
+          } catch {}
+        })
+      );
+      setFareEstimates(entries);
+    } catch {}
   };
 
   const fetchActiveRides = async () => {
+    if (!profile?.id) return setActiveRides([]);
     const { data, error } = await supabase
       .from('appointments')
       .select(`
@@ -72,7 +123,7 @@ export function RiderDashboard() {
           medical_conditions
         )
       `)
-      .eq('rider_id', profile?.id)
+      .eq('rider_id', profile.id)
       .in('status', ['accepted', 'in_progress'])
       .order('appointment_date', { ascending: true });
 
@@ -81,10 +132,11 @@ export function RiderDashboard() {
   };
 
   const fetchEarnings = async () => {
+    if (!profile?.id) return setEarnings([]);
     const { data, error } = await supabase
       .from('earnings')
       .select('*')
-      .eq('rider_id', profile?.id)
+      .eq('rider_id', profile.id)
       .order('created_at', { ascending: false })
       .limit(5);
 
@@ -93,20 +145,21 @@ export function RiderDashboard() {
   };
 
   const fetchStats = async () => {
+    if (!profile?.id) return;
     const { data: appointmentData } = await supabase
       .from('appointments')
       .select('status')
-      .eq('rider_id', profile?.id);
+      .eq('rider_id', profile.id);
 
     const { data: earningData } = await supabase
       .from('earnings')
       .select('net_amount')
-      .eq('rider_id', profile?.id);
+      .eq('rider_id', profile.id);
 
     if (appointmentData && earningData) {
-      const completed = appointmentData.filter(a => a.status === 'completed').length;
-      const active = appointmentData.filter(a => a.status === 'accepted' || a.status === 'in_progress').length;
-      const total = earningData.reduce((sum, earning) => sum + earning.net_amount, 0);
+      const completed = (appointmentData as any).filter((a: any) => a.status === 'completed').length;
+      const active = (appointmentData as any).filter((a: any) => a.status === 'accepted' || a.status === 'in_progress').length;
+      const total = (earningData as any).reduce((sum: number, earning: any) => sum + earning.net_amount, 0);
 
       setStats({
         totalEarnings: total,
@@ -119,49 +172,92 @@ export function RiderDashboard() {
 
   const acceptRide = async (appointmentId: string) => {
     try {
-      // Try to compute and persist a fare estimate at accept-time
+      setActionError(null);
+      setAcceptingId(appointmentId);
       const appt = [...availableRides, ...activeRides].find(a => a.id === appointmentId);
-      let totalCost: number | null = null;
-      if (appt) {
-        try {
+      if (!appt || !profile?.id) throw new Error('Missing appointment or profile');
           const est = await estimateFromAddresses(appt.pickup_location, appt.hospital_address);
-          if (est) {
-            const roundTripKm = est.distanceKm * 2;
-            const roundTripMinutes = est.durationMinutes * 2;
-            const fare = computeFare(roundTripKm, roundTripMinutes, { enhancedSupport: false });
-            totalCost = fare.total;
-          }
-        } catch (e) {
-          console.warn('Fare estimate failed; proceeding without total_cost');
+      const roundKm = est ? Math.round(est.distanceKm * 2 * 100) / 100 : 0;
+      const roundMin = est ? Math.round(est.durationMinutes * 2) : 0;
+      let rpcError = null as any;
+  const rpc = await sb.rpc('accept_ride_with_fare', {
+        p_appointment_id: appointmentId,
+        p_rider_id: profile.id,
+        p_distance_km: roundKm,
+        p_duration_min: roundMin,
+        p_assistance_enhanced: false,
+      });
+      rpcError = rpc.error;
+      if (rpcError && rpcError.code === '42702') {
+        // Fallback: client-side write when RPC fails due to ambiguous column in deployed fn
+        const fare = computeFare(roundKm, roundMin, { enhancedSupport: false });
+    const { data: rideRow, error: rideError } = await sb
+          .from('rides')
+          .insert({
+            appointment_id: appointmentId,
+            patient_id: appt.patient_id,
+            rider_id: profile.id,
+            status: 'accepted',
+            distance_km: roundKm,
+            duration_minutes: roundMin,
+      base_fare: fare.baseFare,
+      distance_fare: fare.distanceFare,
+      time_fare: fare.timeFare,
+            total_fare: fare.total,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .select('id')
+          .maybeSingle();
+        if (rideError) throw rideError;
+        if (rideRow?.id) {
+          await sb.from('ride_status_updates').insert({ ride_id: rideRow.id, status: 'accepted', created_at: new Date().toISOString() } as any);
         }
+  await sb
+          .from('appointments')
+          .update({ rider_id: profile.id, status: 'accepted', total_cost: fare.total, updated_at: new Date().toISOString() })
+          .eq('id', appointmentId);
+      } else if (rpcError) {
+        throw rpcError;
       }
-      const { error } = await supabase
-        .from('appointments')
-        .update({
-          rider_id: profile?.id,
-          status: 'accepted',
-          updated_at: new Date().toISOString(),
-          total_cost: totalCost,
-        })
-        .eq('id', appointmentId);
-
-      if (error) throw error;
 
       // Refresh data
       await fetchData();
     } catch (error) {
       console.error('Error accepting ride:', error);
+      setActionError((error as any)?.message || 'Failed to accept ride');
+    } finally {
+      setAcceptingId(null);
     }
   };
 
   const startRide = async (appointmentId: string) => {
+    // Open ETA modal for rider input
+    setEtaModal({ open: true, text: '', apptId: appointmentId });
+  };
+
+  const confirmStartWithEta = async () => {
+    if (!etaModal.apptId) return;
     try {
-      const { error } = await supabase
+  const { error } = await sb
         .from('appointments')
         .update({ status: 'in_progress', updated_at: new Date().toISOString() })
-        .eq('id', appointmentId);
+        .eq('id', etaModal.apptId);
       if (error) throw error;
-      setInProgressId(appointmentId);
+
+      // Notify patient with ETA via RPC create_notification
+      const appt = [...availableRides, ...activeRides].find(a => a.id === etaModal.apptId);
+      if (appt) {
+        await sb.rpc('create_notification', {
+          p_user_id: appt.patient_id,
+          p_title: 'Ride Starting',
+          p_message: `Rider will arrive in about ${etaModal.text} minutes`,
+          p_type: 'ride'
+        });
+      }
+
+      setInProgressId(etaModal.apptId);
+      setEtaModal({ open: false, text: '', apptId: null });
       await fetchData();
     } catch (e) {
       console.error('Error starting ride:', e);
@@ -178,16 +274,32 @@ export function RiderDashboard() {
         const timeFareAddon = waitingMinutes * 6; // Rs/min
         newTotal = (newTotal ?? 0) + timeFareAddon;
       }
-      const { error } = await supabase
-        .from('appointments')
-        .update({ status: 'completed', total_cost: newTotal, updated_at: new Date().toISOString() })
-        .eq('id', appointmentId);
-      if (error) throw error;
+      // Mark rider completion through RPC
+      const { data: ride } = await sb.from('rides').select('id').eq('appointment_id', appointmentId).maybeSingle();
+      if (ride?.id) {
+        await sb.from('appointments').update({ total_cost: newTotal, updated_at: new Date().toISOString() }).eq('id', appointmentId);
+        await sb.rpc('mark_rider_complete', { p_ride_id: ride.id });
+      }
       setInProgressId(null);
       setWaitingMinutes(0);
       await fetchData();
     } catch (e) {
       console.error('Error completing ride:', e);
+    }
+  };
+
+  const markReachedPickup = async (appointmentId: string) => {
+    const { data: ride } = await sb.from('rides').select('id').eq('appointment_id', appointmentId).maybeSingle();
+    if (ride?.id) {
+      await sb.rpc('mark_ride_step', { p_ride_id: ride.id, p_status: 'pickup' });
+    }
+  };
+
+  const markAtHospital = async (appointmentId: string) => {
+    const { data: ride } = await sb.from('rides').select('id').eq('appointment_id', appointmentId).maybeSingle();
+    if (ride?.id) {
+      await sb.rpc('mark_ride_step', { p_ride_id: ride.id, p_status: 'at_hospital' });
+      setHospitalForm({ open: true, apptId: appointmentId, notes: '' });
     }
   };
 
@@ -316,11 +428,18 @@ export function RiderDashboard() {
                       
                       <button
                         onClick={() => acceptRide(ride.id)}
-                        className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        disabled={acceptingId === ride.id}
+                        className="ml-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
                       >
-                        Accept
+                        {acceptingId === ride.id ? 'Accepting...' : 'Accept'}
                       </button>
                     </div>
+                    {fareEstimates[ride.id] !== undefined && (
+                      <div className="mt-2 text-sm font-semibold text-gray-900">Est. Fare: Rs. {fareEstimates[ride.id].toFixed(2)}</div>
+                    )}
+                    {actionError && (
+                      <div className="mt-2 text-sm text-red-600">{actionError}</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -328,80 +447,13 @@ export function RiderDashboard() {
           </div>
         </div>
 
-        {/* Active Rides */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">Active Rides</h2>
-          </div>
-          
-          <div className="p-6">
-            {activeRides.length === 0 ? (
-              <div className="text-center py-8">
-                <Clock className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-500">No active rides</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {activeRides.map((ride) => (
-                  <div
-                    key={ride.id}
-                    className="border border-green-200 bg-green-50 rounded-lg p-4"
-                  >
-                    <div className="flex items-center space-x-3 mb-3">
-                      <div className="p-2 bg-green-600 rounded-lg">
-                        <User className="h-5 w-5 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="font-semibold text-gray-900">
-                          {(ride as any).profiles?.full_name || 'Patient'}
-                        </h3>
-                        <p className="text-sm text-gray-600">
-                          {format(new Date(ride.appointment_date), 'PPP p')}
-                        </p>
-                      </div>
-                    </div>
-                    
-                    <div className="space-y-2 text-sm text-gray-600">
-                      <div className="flex items-center space-x-2">
-                        <MapPin className="h-4 w-4" />
-                        <span>{ride.pickup_location}</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <MapPin className="h-4 w-4" />
-                        <span>{ride.hospital_name}</span>
-                      </div>
-                    </div>
-                    
-                    <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-2">
-                      {ride.status === 'accepted' && (
-                        <button onClick={() => startRide(ride.id)} className="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors">
-                          Start Ride
-                        </button>
-                      )}
-                      {ride.status === 'in_progress' && (
-                        <>
-                          <div className="flex items-center space-x-2">
-                            <label className="text-sm text-gray-600">Waiting (min)</label>
-                            <input type="number" min={0} value={waitingMinutes}
-                                   onChange={e => setWaitingMinutes(parseInt(e.target.value || '0'))}
-                                   className="w-24 border rounded px-2 py-1" />
-                          </div>
-                          <button onClick={() => completeRide(ride.id)} className="bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors">
-                            Complete Trip
-                          </button>
-                        </>
-                      )}
-                      <button className="bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 transition-colors">
-                        Contact Patient
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
+      <Snackbar
+        open={snackbar.open}
+        title="Success"
+        message={snackbar.message}
+        onClose={() => setSnackbar({ open: false, message: '' })}
+      />
     </div>
   );
 }

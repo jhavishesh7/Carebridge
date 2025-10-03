@@ -1,15 +1,24 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { Calendar, Clock, MapPin, Plus, Activity } from 'lucide-react';
+import { useRideStatusUpdates } from '../../hooks/useRideStatusUpdates';
 import type { Appointment } from '../../lib/database.types';
 import { format } from 'date-fns';
 import { LoadingSpinner } from '../ui/LoadingSpinner';
+import { RideStatus } from '../common/RideStatus';
+import { RideFlowModal } from '../common/RideFlowModal';
+import { ContactDrawer } from '../common/ContactDrawer';
+import { Snackbar } from '../ui/Snackbar';
 
 export function PatientDashboard() {
   const { profile } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [popup, setPopup] = useState<string | null>(null);
+  const [rideModal, setRideModal] = useState<{ open: boolean; apptId: string | null }>({ open: false, apptId: null });
+  const [snackbar, setSnackbar] = useState<{ open: boolean; title?: string; message?: string; appointmentId?: string | null }>({ open: false });
+  const [contact, setContact] = useState<{ open: boolean; name?: string; phone?: string; address?: string }>({ open: false });
   const [stats, setStats] = useState({
     upcoming: 0,
     completed: 0,
@@ -19,16 +28,49 @@ export function PatientDashboard() {
   useEffect(() => {
     fetchAppointments();
     fetchStats();
-  }, [profile?.id]);
+    // Subscribe to notifications for patient popups
+    if (!profile) return;
+    const channel = supabase
+      .channel('realtime:notifications-dashboard')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, (payload: { new: any }) => {
+        const rec = payload.new as any;
+        // Invoice notifications include appointment id like 'Invoice generated for appointment:ID'
+        if (rec.type === 'invoice' && typeof rec.message === 'string') {
+          const m = rec.message as string;
+          const match = m.match(/appointment:([a-z0-9\-]+)/i);
+          const apptId = match ? match[1] : null;
+          setPopup(`${rec.title}: ${apptId ? 'Invoice ready' : rec.message}`);
+          setSnackbar({ open: true, title: rec.title, message: 'Invoice is available', appointmentId: apptId });
+        } else {
+          setPopup(`${rec.title}: ${rec.message}`);
+        }
+        setTimeout(() => setPopup(null), 8000);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id, rideModal.open]);
+
+  useRideStatusUpdates({
+    userId: profile?.id || null,
+    isPatient: true,
+    rideModal,
+    setRideModal,
+  });
 
   const fetchAppointments = async () => {
     try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('patient_id', profile?.id)
-        .order('appointment_date', { ascending: true })
-        .limit(5);
+      let data = null;
+      let error = null;
+      if (profile?.id) {
+        const res = await supabase
+          .from('appointments')
+          .select('*')
+          .eq('patient_id', profile.id)
+          .order('appointment_date', { ascending: true })
+          .limit(5);
+        data = res.data;
+        error = res.error;
+      }
 
       if (error) throw error;
       setAppointments(data || []);
@@ -41,14 +83,18 @@ export function PatientDashboard() {
 
   const fetchStats = async () => {
     try {
-      const { data: appointmentData } = await supabase
-        .from('appointments')
-        .select('status')
-        .eq('patient_id', profile?.id);
+      let appointmentData: Array<{ status: string }> | null = null;
+      if (profile?.id) {
+        const res = await supabase
+          .from('appointments')
+          .select('status')
+          .eq('patient_id', profile.id);
+        appointmentData = (res.data as any) || null;
+      }
 
       if (appointmentData) {
-        const upcoming = appointmentData.filter(a => a.status === 'pending' || a.status === 'accepted').length;
-        const completed = appointmentData.filter(a => a.status === 'completed').length;
+  const upcoming = (appointmentData || []).filter(a => a.status === 'pending' || a.status === 'accepted').length;
+  const completed = (appointmentData || []).filter(a => a.status === 'completed').length;
         setStats({
           upcoming,
           completed,
@@ -87,6 +133,11 @@ export function PatientDashboard() {
 
   return (
     <div className="p-6">
+      {popup && (
+        <div className="fixed top-20 right-6 z-50 bg-white border border-blue-200 shadow-lg rounded-lg p-4 max-w-sm">
+          <div className="text-sm text-gray-800">{popup}</div>
+        </div>
+      )}
       {/* Welcome Section */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Welcome back, {profile?.full_name}</h1>
@@ -196,15 +247,59 @@ export function PatientDashboard() {
                     </div>
                   </div>
                   
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
-                    {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(appointment.status)}`}>
+                      {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                    </span>
+                    {appointment.status === 'completed' && (
+                      <a
+                        className="text-blue-600 hover:text-blue-700 text-sm font-semibold"
+                        href={`/invoice/${appointment.id}`}
+                      >
+                        View Invoice
+                      </a>
+                    )}
+                    {(appointment.status === 'accepted' || appointment.status === 'in_progress') && (
+                      <div className="flex items-center space-x-3">
+                        <button onClick={() => setRideModal({ open: true, apptId: appointment.id })} className="text-blue-600 hover:text-blue-700 text-sm font-semibold">
+                          View Ride Status
+                        </button>
+                        <button onClick={async () => {
+                          const { data } = await supabase
+                            .from('appointments')
+                            .select('profiles:rider_id(full_name, phone, address)')
+                            .eq('id', appointment.id)
+                            .maybeSingle();
+                          const r = (data as any)?.profiles;
+                          setContact({ open: true, name: r?.full_name, phone: r?.phone, address: r?.address });
+                        }} className="text-gray-600 hover:text-gray-700 text-sm font-semibold">Contact Rider</button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="w-full mt-3">
+                    {(appointment.status === 'accepted' || appointment.status === 'in_progress') && (
+                      <div className="space-y-2">
+                        <RideStatus appointmentId={appointment.id} />
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </div>
       </div>
+      <RideFlowModal open={rideModal.open} onClose={() => setRideModal({ open: false, apptId: null })} appointmentId={rideModal.apptId || ''} role="patient" />
+      <ContactDrawer open={contact.open} onClose={() => setContact({ open: false })} name={contact.name} phone={contact.phone} address={contact.address} roleLabel="Rider" />
+      <Snackbar
+        open={snackbar.open}
+        title={snackbar.title}
+        message={snackbar.message}
+        onClose={() => setSnackbar({ open: false })}
+        action={snackbar.appointmentId ? (
+          <a href={`/invoice/${snackbar.appointmentId}`} className="bg-blue-600 text-white px-3 py-1 rounded text-sm">View Invoice</a>
+        ) : null}
+      />
     </div>
   );
 }

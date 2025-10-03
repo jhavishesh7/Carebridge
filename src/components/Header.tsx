@@ -1,11 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Bell, User, LogOut, Settings, Heart, Shield } from 'lucide-react';
+import { Bell, User, LogOut, Settings, Heart } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { Modal } from './ui/Modal';
 
 export function Header() {
-  const { profile, signOut, updateRole } = useAuth();
+  const { profile, signOut } = useAuth();
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Array<{ id: string; title: string; message: string; is_read: boolean; created_at: string }>>([]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -18,6 +22,31 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Load notifications
+  useEffect(() => {
+    const load = async () => {
+      if (!profile) return;
+      const { data } = await supabase
+        .from('notifications')
+        .select('id,title,message,is_read,created_at')
+        .eq('user_id', profile.id)
+        .order('created_at', { ascending: false })
+        .limit(20);
+      setNotifications(data || []);
+    };
+    load();
+    if (!profile) return;
+    const channel = supabase
+      .channel('realtime:notifications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` }, () => {
+        load();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id]);
+
+  const unread = useMemo(() => notifications.filter(n => !n.is_read).length, [notifications]);
+
   const handleSignOut = async () => {
     try {
       await signOut();
@@ -27,6 +56,7 @@ export function Header() {
   };
 
   return (
+    <>
     <header className="bg-white shadow-sm border-b border-gray-200 relative z-50">
       <div className="px-6 py-4">
         <div className="flex items-center justify-between">
@@ -45,11 +75,13 @@ export function Header() {
           {profile && (
             <div className="flex items-center space-x-4">
               {/* Notifications */}
-              <button className="p-2 text-gray-400 hover:text-gray-600 relative">
+              <button onClick={() => setNotifOpen(true)} className="p-2 text-gray-400 hover:text-gray-600 relative">
                 <Bell className="h-6 w-6" />
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                  3
-                </span>
+                {unread > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                    {unread}
+                  </span>
+                )}
               </button>
 
               {/* User dropdown */}
@@ -69,29 +101,6 @@ export function Header() {
 
                 {showDropdown && (
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
-                    <div className="px-4 py-2 text-xs text-gray-500">Role</div>
-                    <button
-                      onClick={async () => { setShowDropdown(false); await updateRole('patient'); }}
-                      className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
-                    >
-                      <Shield className="h-4 w-4" />
-                      <span>Patient</span>
-                    </button>
-                    <button
-                      onClick={async () => { setShowDropdown(false); await updateRole('rider'); }}
-                      className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
-                    >
-                      <Shield className="h-4 w-4" />
-                      <span>Rider</span>
-                    </button>
-                    <button
-                      onClick={async () => { setShowDropdown(false); await updateRole('admin'); }}
-                      className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
-                    >
-                      <Shield className="h-4 w-4" />
-                      <span>Admin</span>
-                    </button>
-                    <hr className="my-1" />
                     <button
                       onClick={() => setShowDropdown(false)}
                       className="flex items-center space-x-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 w-full text-left"
@@ -115,5 +124,21 @@ export function Header() {
         </div>
       </div>
     </header>
+    <Modal open={notifOpen} title="Notifications" onClose={() => setNotifOpen(false)}>
+      {notifications.length === 0 ? (
+        <div className="text-gray-600">No notifications</div>
+      ) : (
+        <div className="space-y-3">
+          {notifications.map(n => (
+            <div key={n.id} className="border-b pb-2">
+              <div className="text-sm font-semibold text-gray-900">{n.title}</div>
+              <div className="text-sm text-gray-700">{n.message}</div>
+              <div className="text-xs text-gray-400 mt-1">{new Date(n.created_at).toLocaleString()}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+    </>
   );
 }

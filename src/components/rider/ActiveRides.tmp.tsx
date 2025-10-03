@@ -18,13 +18,11 @@ export function ActiveRides(): JSX.Element {
 
   useEffect(() => {
     load();
-    // Cleanup rideModal when unmounting
     return () => {
       setRideModal({ open: false, apptId: null });
     };
   }, [profile?.id]);
 
-  // Auto-update and modal management
   useRideStatusUpdates({
     userId: profile?.id || null,
     isPatient: false,
@@ -32,7 +30,6 @@ export function ActiveRides(): JSX.Element {
     setRideModal,
   });
 
-  // Preload ride data when modal is opened
   useEffect(() => {
     if (rideModal.open && rideModal.apptId) {
       const loadRideData = async () => {
@@ -43,7 +40,6 @@ export function ActiveRides(): JSX.Element {
           .maybeSingle();
           
         if (!ride) {
-          // If ride doesn't exist yet, close modal
           setRideModal({ open: false, apptId: null });
         }
       };
@@ -69,7 +65,6 @@ export function ActiveRides(): JSX.Element {
   };
 
   const startRide = async (id: string) => {
-    // Open ETA modal for rider input
     setEtaModal({ open: true, text: '', apptId: id });
     setRideModal({ open: true, apptId: id });
   };
@@ -80,7 +75,6 @@ export function ActiveRides(): JSX.Element {
       const { error } = await supabase.from('appointments').update({ status: 'in_progress', updated_at: new Date().toISOString() }).eq('id', etaModal.apptId);
       if (error) throw error;
 
-      // Notify patient with ETA
       const appt = rides.find(a => a.id === etaModal.apptId);
       if (appt) {
         await supabase.rpc('create_notification', {
@@ -100,7 +94,6 @@ export function ActiveRides(): JSX.Element {
 
   const complete = async (id: string) => {
     const extraTime = waiting[id] || 0;
-    // add Rs. 6 per minute waiting
     const { data: apptData } = await supabase.from('appointments').select('total_cost').eq('id', id).maybeSingle();
     const newTotal = (apptData?.total_cost ?? 0) + extraTime * 6;
     const { error } = await supabase.from('appointments').update({ status: 'in_progress', total_cost: newTotal, updated_at: new Date().toISOString() }).eq('id', id);
@@ -146,6 +139,7 @@ export function ActiveRides(): JSX.Element {
       </div>
     );
   }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 p-6">
       <div className="max-w-7xl mx-auto">

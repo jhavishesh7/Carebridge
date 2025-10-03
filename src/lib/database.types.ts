@@ -115,6 +115,8 @@ export type Database = {
           distance_fare: number;
           time_fare: number;
           total_fare: number | null;
+          rider_completed?: boolean; // added by migrations
+          patient_completed?: boolean; // added by migrations
           patient_notes: string | null;
           rider_notes: string | null;
           created_at: string;
@@ -136,6 +138,8 @@ export type Database = {
           distance_fare?: number;
           time_fare?: number;
           total_fare?: number | null;
+          rider_completed?: boolean; // added by migrations
+          patient_completed?: boolean; // added by migrations
           patient_notes?: string | null;
           rider_notes?: string | null;
           created_at?: string;
@@ -157,6 +161,8 @@ export type Database = {
           distance_fare?: number;
           time_fare?: number;
           total_fare?: number | null;
+          rider_completed?: boolean; // added by migrations
+          patient_completed?: boolean; // added by migrations
           patient_notes?: string | null;
           rider_notes?: string | null;
           created_at?: string;

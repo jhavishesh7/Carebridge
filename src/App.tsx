@@ -9,6 +9,9 @@ import { AvailableRides } from './components/rider/AvailableRides';
 import { ActiveRides } from './components/rider/ActiveRides';
 import { EarningsPage } from './components/rider/EarningsPage';
 import { UsersPage } from './components/admin/UsersPage';
+import { InvoiceDisplay } from './components/common/InvoiceDisplay';
+import { ProfilePage } from './components/common/ProfilePage';
+import { RideHistoryPage } from './components/common/RideHistoryPage';
 import { LoginForm } from './components/auth/LoginForm';
 import { SignupForm } from './components/auth/SignupForm';
 import { AuthGuard } from './components/auth/AuthGuard';
@@ -126,12 +129,24 @@ function AppContent() {
           {/* Patient */}
           <Route path="/book" element={<BookAppointment />} />
           <Route path="/appointments" element={<AppointmentsPage />} />
+          <Route path="/rides" element={<RideHistoryPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
           {/* Rider */}
           <Route path="/rider/available" element={<AvailableRides />} />
           <Route path="/rider/active" element={<ActiveRides />} />
           <Route path="/rider/earnings" element={<EarningsPage />} />
+          <Route path="/rider/history" element={<RideHistoryPage />} />
           {/* Admin */}
-          <Route path="/admin/users" element={<UsersPage />} />
+          <Route
+            path="/admin/users"
+            element={
+              <AuthGuard role="admin">
+                <UsersPage />
+              </AuthGuard>
+            }
+          />
+          {/* Invoice */}
+          <Route path="/invoice/:appointmentId" element={<InvoiceDisplay />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthGuard>
